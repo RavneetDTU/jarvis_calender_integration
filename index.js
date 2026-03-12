@@ -10,7 +10,7 @@ const PORT = process.env.PORT || 5000;
 
 // Update origins to match your frontend URL
 app.use(cors({
-    origin: ['http://localhost:5173', 'http://localhost:3000','https://jarviscalling.ai'],
+    origin: ['http://localhost:5173', 'http://localhost:3000','https://www.jarviscalling.ai'],
     credentials: true
 }));
 
