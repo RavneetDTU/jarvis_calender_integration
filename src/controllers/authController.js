@@ -3,14 +3,13 @@ import { google } from 'googleapis';
 
 export const googleAuthCallback = async (req, res) => {
     try {
-        const { code, calendarId, storeName } = req.body;
-        console.log("request body data is :",req.body);
+        const { code, calendarId, storeName, userId } = req.body;
 
         if (!code) {
             return res.status(400).json({ error: 'Authorization code is required' });
         }
-        if (!calendarId || !storeName) {
-            return res.status(400).json({ error: 'calendarId and storeName are required' });
+        if (!calendarId || !storeName || !userId) {
+            return res.status(400).json({ error: 'calendarId, storeName, and userId are required' });
         }
 
         // 1. Exchange the auth code for access and refresh tokens
@@ -19,15 +18,16 @@ export const googleAuthCallback = async (req, res) => {
         // 2. We specifically need the refresh token to save it. 
         // If Google didn't send one, it means the user has granted access previously.
         if (tokens.refresh_token) {
-            console.log(`Received new refresh token for store: ${calendarId}`);
+            console.log(`Received new refresh token for store: ${calendarId} user: ${userId}`);
             if (db) {
-                // Save the refresh token to Firebase Firestore under a 'stores' collection
+                // Save the refresh token to Firebase Firestore under a flat 'stores' collection
                 await db.collection('stores').doc(calendarId).set({
+                    userId: userId,
                     refresh_token: tokens.refresh_token,
                     storeName: storeName,
                     updatedAt: new Date()
                 }, { merge: true });
-                console.log(`[Success] Saved refresh token to Firebase for ${storeName} under ID ${calendarId}`);
+                console.log(`[Success] Saved refresh token to Firebase for ${storeName} under user ID ${userId}`);
             } else {
                 console.warn('⚠️ Firebase DB not initialized. Token was not saved to DB!');
             }
@@ -68,10 +68,10 @@ export const googleAuthCallback = async (req, res) => {
 
 export const refreshToken = async (req, res) => {
     try {
-        const { calendarId } = req.body;
+        const { calendarId, userId } = req.body;
 
-        if (!calendarId) {
-            return res.status(400).json({ error: 'calendarId (Store Name) is required' });
+        if (!calendarId || !userId) {
+            return res.status(400).json({ error: 'calendarId (Store Name) and userId are required' });
         }
 
         if (!db) {
@@ -105,5 +105,87 @@ export const refreshToken = async (req, res) => {
         console.error('Error refreshing token:', error);
         // If Google rejects the refresh token (e.g., user revoked access), return a 401
         res.status(401).json({ error: 'Failed to refresh token. Please reconnect Google Calendar.' });
+    }
+};
+
+export const getUserCalendars = async (req, res) => {
+    try {
+        const { userId } = req.params;
+
+        if (!userId) {
+            return res.status(400).json({ error: 'userId is required' });
+        }
+
+        if (!db) {
+            return res.status(500).json({ error: 'Database not initialized' });
+        }
+
+        const storesSnapshot = await db.collection('stores').where('userId', '==', userId).get();
+        
+        const stores = [];
+        storesSnapshot.forEach(doc => {
+            const data = doc.data();
+            stores.push({
+                calendarId: doc.id,
+                storeName: data.storeName,
+                updatedAt: data.updatedAt
+            });
+        });
+
+        res.json({ success: true, stores });
+    } catch (error) {
+        console.error('Error fetching user calendars:', error);
+        res.status(500).json({ error: 'Failed to fetch user calendars' });
+    }
+};
+
+export const getCalendarEvents = async (req, res) => {
+    try {
+        const { calendarId } = req.params;
+        const { date } = req.query; // Expecting YYYY-MM-DD or full ISO
+
+        if (!calendarId) {
+            return res.status(400).json({ error: 'calendarId is required' });
+        }
+
+        if (!db) {
+            return res.status(500).json({ error: 'Database not initialized' });
+        }
+
+        // 1. Fetch token from flat stores collection
+        const storeDoc = await db.collection('stores').doc(calendarId).get();
+        if (!storeDoc.exists || !storeDoc.data().refresh_token) {
+            return res.status(404).json({ error: 'Calendar connection not found or no refresh token' });
+        }
+
+        const refreshToken = storeDoc.data().refresh_token;
+
+        // 2. Set temporary credentials for this request
+        const oauth2ClientWithToken = new google.auth.OAuth2(
+            process.env.GOOGLE_CLIENT_ID,
+            process.env.GOOGLE_CLIENT_SECRET,
+            'postmessage'
+        );
+        oauth2ClientWithToken.setCredentials({ refresh_token: refreshToken });
+
+        // 3. Setup dates
+        const targetDate = date ? new Date(date) : new Date();
+        const startOfDay = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate(), 0, 0, 0);
+        const endOfDay = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate(), 23, 59, 59);
+
+        // 4. Fetch events
+        const calendar = google.calendar({ version: 'v3', auth: oauth2ClientWithToken });
+        const response = await calendar.events.list({
+            calendarId: 'primary',
+            timeMin: startOfDay.toISOString(),
+            timeMax: endOfDay.toISOString(),
+            singleEvents: true,
+            orderBy: 'startTime',
+        });
+
+        res.json({ success: true, events: response.data.items });
+    } catch (error) {
+        console.error('Error fetching calendar events:', error);
+        res.status(500).json({ error: 'Failed to fetch calendar events from Google' });
     }
 };

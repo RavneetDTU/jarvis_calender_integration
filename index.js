@@ -21,7 +21,7 @@ app.use('/api/auth', authRoutes);
 
 // Basic health check endpoint
 app.get('/health', (req, res) => {
-    res.json({ status: 'OK', message: 'Mets Leads Backend is running' });
+    res.json({ status: 'OK', message: 'Mets Leads calendar integration Backend is running' });
 });
 
 app.listen(PORT, () => {
