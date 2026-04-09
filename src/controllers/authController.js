@@ -128,6 +128,8 @@ export const getUserCalendars = async (req, res) => {
             stores.push({
                 calendarId: doc.id,
                 storeName: data.storeName,
+                openTime: data.openTime ?? null,
+                closeTime: data.closeTime ?? null,
                 updatedAt: data.updatedAt
             });
         });
@@ -136,6 +138,94 @@ export const getUserCalendars = async (req, res) => {
     } catch (error) {
         console.error('Error fetching user calendars:', error);
         res.status(500).json({ error: 'Failed to fetch user calendars' });
+    }
+};
+
+export const updateCalendarSettings = async (req, res) => {
+    try {
+        const { calendarId } = req.params;
+        const { openTime, closeTime } = req.body;
+
+        if (!calendarId) {
+            return res.status(400).json({ error: 'calendarId is required' });
+        }
+        if (!openTime || !closeTime) {
+            return res.status(400).json({ error: 'openTime and closeTime are required' });
+        }
+
+        // Basic HH:MM format validation
+        const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/;
+        if (!timeRegex.test(openTime) || !timeRegex.test(closeTime)) {
+            return res.status(400).json({ error: 'openTime and closeTime must be in HH:MM format (e.g. "09:00")' });
+        }
+        if (openTime >= closeTime) {
+            return res.status(400).json({ error: 'openTime must be earlier than closeTime' });
+        }
+
+        if (!db) {
+            return res.status(500).json({ error: 'Database not initialized' });
+        }
+
+        // Confirm the store document actually exists before updating
+        const storeDoc = await db.collection('stores').doc(calendarId).get();
+        if (!storeDoc.exists) {
+            return res.status(404).json({ error: 'Calendar not found for the given calendarId' });
+        }
+
+        // merge: true ensures we only update these two fields — refresh_token and other fields are safe
+        await db.collection('stores').doc(calendarId).set(
+            { openTime, closeTime, updatedAt: new Date() },
+            { merge: true }
+        );
+
+        console.log(`[Success] Updated settings for calendarId: ${calendarId} → openTime: ${openTime}, closeTime: ${closeTime}`);
+
+        res.json({
+            success: true,
+            calendarId,
+            openTime,
+            closeTime
+        });
+
+    } catch (error) {
+        console.error('Error updating calendar settings:', error);
+        res.status(500).json({ error: 'Failed to update calendar settings' });
+    }
+};
+
+export const deleteCalendar = async (req, res) => {
+    try {
+        const { calendarId } = req.params;
+
+        if (!calendarId) {
+            return res.status(400).json({ error: 'calendarId is required' });
+        }
+
+        if (!db) {
+            return res.status(500).json({ error: 'Database not initialized' });
+        }
+
+        // Confirm the store document exists before attempting delete
+        const storeDoc = await db.collection('stores').doc(calendarId).get();
+        if (!storeDoc.exists) {
+            return res.status(404).json({ error: 'Calendar not found for the given calendarId' });
+        }
+
+        const { storeName, userId } = storeDoc.data();
+
+        await db.collection('stores').doc(calendarId).delete();
+
+        console.log(`[Success] Deleted calendar for store: ${storeName} (calendarId: ${calendarId}, userId: ${userId})`);
+
+        res.json({
+            success: true,
+            message: `Calendar for store "${storeName}" has been disconnected and removed successfully.`,
+            calendarId
+        });
+
+    } catch (error) {
+        console.error('Error deleting calendar:', error);
+        res.status(500).json({ error: 'Failed to delete calendar' });
     }
 };
 

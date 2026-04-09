@@ -1,5 +1,5 @@
 import express from 'express';
-import { googleAuthCallback, refreshToken, getUserCalendars, getCalendarEvents } from '../controllers/authController.js';
+import { googleAuthCallback, refreshToken, getUserCalendars, getCalendarEvents, updateCalendarSettings, deleteCalendar } from '../controllers/authController.js';
 
 const router = express.Router();
 
@@ -18,5 +18,13 @@ router.get('/calendars/:userId', getUserCalendars);
 // GET /api/auth/events/:calendarId
 // Fetch events for a specific calendar. Optional generic ?date=YYYY-MM-DD
 router.get('/events/:calendarId', getCalendarEvents);
+
+// PATCH /api/auth/calendars/:calendarId/settings
+// Save or update openTime and closeTime for a specific store calendar
+router.patch('/calendars/:calendarId/settings', updateCalendarSettings);
+
+// DELETE /api/auth/calendars/:calendarId
+// Disconnect and delete a specific store's calendar by calendarId
+router.delete('/calendars/:calendarId', deleteCalendar);
 
 export default router;
